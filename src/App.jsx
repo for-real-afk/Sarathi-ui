@@ -12,6 +12,8 @@ import SectionI from "./sections/SectionI";
 import SectionJ from "./sections/SectionJ";
 import SectionK from "./sections/SectionK";
 import CrmPortal from "./components/CrmPortal";
+import VolunteerDashboard from "./components/VolunteerDashboard";
+
 
 
 // ── Section metadata ──────────────────────────────────
@@ -812,10 +814,16 @@ export default function App() {
         localStorage.setItem("roles", JSON.stringify(data.roles));
         localStorage.setItem("username", data.username);
         localStorage.setItem("refresh_token", data.refresh_token);
+        if (data.roles.includes("VOLUNTEER")) {
+          setActiveView("volunteer");
+        } else {
+          setActiveView("survey");
+        }
         setLoginModalOpen(false);
         setLoginUsername("");
         setLoginPassword("");
       } else {
+
         const err = await res.json();
         setLoginError(err.detail || "Login failed");
       }
@@ -1290,12 +1298,12 @@ export default function App() {
         </div>
 
         {/* Progress bar */}
-        {!submitted && activeView !== "crm" && (
+        {!submitted && activeView !== "crm" && activeView !== "volunteer" && (
           <div style={{ height:3, background:"rgba(255,255,255,0.07)", marginBottom:4 }}>
             <div style={{ height:"100%", width:`${progress}%`, background:`linear-gradient(90deg,${C.accent},#f59e0b)`, transition:"width 0.4s ease", borderRadius:2 }}/>
           </div>
         )}
-        {!submitted && activeView !== "crm" && (
+        {!submitted && activeView !== "crm" && activeView !== "volunteer" && (
           <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:C.textMuted, paddingBottom:10 }}>
             <span>{lang==="en" ? sectionMeta.subtitle_en : sectionMeta.subtitle_te}</span>
             <span style={{ color:C.accent, fontWeight:700 }}>{idx+1} / {SECTIONS.length}</span>
@@ -1303,7 +1311,7 @@ export default function App() {
         )}
 
         {/* Section tabs */}
-        {!submitted && activeView !== "crm" && (
+        {!submitted && activeView !== "crm" && activeView !== "volunteer" && (
           <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:12, flexWrap:"wrap", scrollbarWidth:"none" }}>
             {SECTIONS.map(s => {
               const isActive = s.key === current;
@@ -1323,6 +1331,7 @@ export default function App() {
             })}
           </div>
         )}
+
 
       </header>
  
@@ -1351,27 +1360,47 @@ export default function App() {
             >
               📋 {lang === "en" ? "Survey Wizard" : "సర్వే విజార్డ్"}
             </button>
+
+            {userRoles.includes("ADMIN") && (
+              <button
+                onClick={() => {
+                  setActiveView("crm");
+                }}
+                style={{
+                  padding: "8px 18px", borderRadius: 8,
+                  border: `1px solid ${activeView === "crm" ? C.accent : "rgba(255,255,255,0.08)"}`,
+                  background: activeView === "crm" ? C.accentDim : "transparent",
+                  color: activeView === "crm" ? C.accent : C.textMuted,
+                  cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "inherit",
+                  transition: "all 0.2s"
+                }}
+              >
+                👥 {lang === "en" ? "Beneficiary CRM" : "లబ్ధిదారుల CRM"}
+              </button>
+            )}
+
             <button
-              onClick={() => {
-                setActiveView("crm");
-              }}
+              onClick={() => setActiveView("volunteer")}
               style={{
                 padding: "8px 18px", borderRadius: 8,
-                border: `1px solid ${activeView === "crm" ? C.accent : "rgba(255,255,255,0.08)"}`,
-                background: activeView === "crm" ? C.accentDim : "transparent",
-                color: activeView === "crm" ? C.accent : C.textMuted,
+                border: `1px solid ${activeView === "volunteer" ? C.accent : "rgba(255,255,255,0.08)"}`,
+                background: activeView === "volunteer" ? C.accentDim : "transparent",
+                color: activeView === "volunteer" ? C.accent : C.textMuted,
                 cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "inherit",
                 transition: "all 0.2s"
               }}
             >
-              👥 {lang === "en" ? "Beneficiary CRM" : "లబ్ధిదారుల CRM"}
+              🤝 {lang === "en" ? "Volunteer Dashboard" : "స్వచ్ఛంద డాష్‌బోర్డ్"}
             </button>
           </div>
         )}
 
         {activeView === "crm" ? (
           <CrmPortal lang={lang} userToken={userToken} />
+        ) : activeView === "volunteer" ? (
+          <VolunteerDashboard lang={lang} userToken={userToken} />
         ) : submitted ? (
+
 
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
             {/* Dashboard Header */}
