@@ -62,7 +62,7 @@ The frontend connects directly to the **Saarthi Welfare Backend** (running on po
 
 2. **Run the React Development Server**:
    ```bash
-   npm start
+   npm start# it took this command to start in my local npx react-scripts start
    ```
    The browser will automatically open to `http://localhost:3000`.
 

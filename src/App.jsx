@@ -11,6 +11,8 @@ import SectionH from "./sections/SectionH";
 import SectionI from "./sections/SectionI";
 import SectionJ from "./sections/SectionJ";
 import SectionK from "./sections/SectionK";
+import CrmPortal from "./components/CrmPortal";
+
 
 // ── Section metadata ──────────────────────────────────
 const SECTIONS = [
@@ -779,6 +781,8 @@ export default function App() {
   // Authentication & RBAC States
   const [userToken, setUserToken] = useState(localStorage.getItem("token") || null);
   const [userRoles, setUserRoles] = useState(JSON.parse(localStorage.getItem("roles") || "[]"));
+  const [activeView, setActiveView] = useState("survey");
+
   const [userUsername, setUserUsername] = useState(localStorage.getItem("username") || "");
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [loginUsername, setLoginUsername] = useState("");
@@ -834,12 +838,14 @@ export default function App() {
     setUserToken(null);
     setUserRoles([]);
     setUserUsername("");
+    setActiveView("survey");
     localStorage.removeItem("token");
     localStorage.removeItem("roles");
     localStorage.removeItem("username");
     localStorage.removeItem("refresh_token");
     setRbacResults({});
   };
+
 
   const handlePasswordReset = async (e) => {
     if (e) e.preventDefault();
@@ -1284,12 +1290,12 @@ export default function App() {
         </div>
 
         {/* Progress bar */}
-        {!submitted && (
+        {!submitted && activeView !== "crm" && (
           <div style={{ height:3, background:"rgba(255,255,255,0.07)", marginBottom:4 }}>
             <div style={{ height:"100%", width:`${progress}%`, background:`linear-gradient(90deg,${C.accent},#f59e0b)`, transition:"width 0.4s ease", borderRadius:2 }}/>
           </div>
         )}
-        {!submitted && (
+        {!submitted && activeView !== "crm" && (
           <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:C.textMuted, paddingBottom:10 }}>
             <span>{lang==="en" ? sectionMeta.subtitle_en : sectionMeta.subtitle_te}</span>
             <span style={{ color:C.accent, fontWeight:700 }}>{idx+1} / {SECTIONS.length}</span>
@@ -1297,7 +1303,7 @@ export default function App() {
         )}
 
         {/* Section tabs */}
-        {!submitted && (
+        {!submitted && activeView !== "crm" && (
           <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:12, flexWrap:"wrap", scrollbarWidth:"none" }}>
             {SECTIONS.map(s => {
               const isActive = s.key === current;
@@ -1317,11 +1323,56 @@ export default function App() {
             })}
           </div>
         )}
+
       </header>
  
       {/* ══ BODY ═══════════════════════════════════════ */}
       <main style={{ maxWidth:960, margin:"0 auto", padding:"28px 24px 80px" }}>
-        {submitted ? (
+        
+        {/* Toggle between Survey Wizard and Citizen CRM for Admin / Volunteer roles */}
+        {userToken && (userRoles.includes("ADMIN") || userRoles.includes("VOLUNTEER")) && (
+          <div style={{
+            display: "flex",
+            gap: 12,
+            marginBottom: 24,
+            borderBottom: `1px solid ${C.border}`,
+            paddingBottom: 16
+          }}>
+            <button
+              onClick={() => setActiveView("survey")}
+              style={{
+                padding: "8px 18px", borderRadius: 8,
+                border: `1px solid ${activeView === "survey" ? C.accent : "rgba(255,255,255,0.08)"}`,
+                background: activeView === "survey" ? C.accentDim : "transparent",
+                color: activeView === "survey" ? C.accent : C.textMuted,
+                cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "inherit",
+                transition: "all 0.2s"
+              }}
+            >
+              📋 {lang === "en" ? "Survey Wizard" : "సర్వే విజార్డ్"}
+            </button>
+            <button
+              onClick={() => {
+                setActiveView("crm");
+              }}
+              style={{
+                padding: "8px 18px", borderRadius: 8,
+                border: `1px solid ${activeView === "crm" ? C.accent : "rgba(255,255,255,0.08)"}`,
+                background: activeView === "crm" ? C.accentDim : "transparent",
+                color: activeView === "crm" ? C.accent : C.textMuted,
+                cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "inherit",
+                transition: "all 0.2s"
+              }}
+            >
+              👥 {lang === "en" ? "Beneficiary CRM" : "లబ్ధిదారుల CRM"}
+            </button>
+          </div>
+        )}
+
+        {activeView === "crm" ? (
+          <CrmPortal lang={lang} userToken={userToken} />
+        ) : submitted ? (
+
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
             {/* Dashboard Header */}
             <div style={{
