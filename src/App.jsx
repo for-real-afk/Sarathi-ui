@@ -776,6 +776,124 @@ export default function App() {
   const [sessionId, setSessionId] = useState("");
   const chatEndRef = useRef(null);
 
+  // Authentication & RBAC States
+  const [userToken, setUserToken] = useState(localStorage.getItem("token") || null);
+  const [userRoles, setUserRoles] = useState(JSON.parse(localStorage.getItem("roles") || "[]"));
+  const [userUsername, setUserUsername] = useState(localStorage.getItem("username") || "");
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [passwordResetOpen, setPasswordResetOpen] = useState(false);
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [resetMessage, setResetMessage] = useState("");
+  const [rbacResults, setRbacResults] = useState({});
+
+  // Auth Operations
+  const handleLogin = async (e) => {
+    if (e) e.preventDefault();
+    setLoginError("");
+    try {
+      const res = await fetch("http://localhost:4000/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username_or_email: loginUsername, password: loginPassword })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUserToken(data.access_token);
+        setUserRoles(data.roles);
+        setUserUsername(data.username);
+        localStorage.setItem("token", data.access_token);
+        localStorage.setItem("roles", JSON.stringify(data.roles));
+        localStorage.setItem("username", data.username);
+        localStorage.setItem("refresh_token", data.refresh_token);
+        setLoginModalOpen(false);
+        setLoginUsername("");
+        setLoginPassword("");
+      } else {
+        const err = await res.json();
+        setLoginError(err.detail || "Login failed");
+      }
+    } catch (err) {
+      setLoginError("Could not connect to auth server.");
+    }
+  };
+
+  const handleLogout = async () => {
+    const refreshToken = localStorage.getItem("refresh_token");
+    if (refreshToken) {
+      try {
+        await fetch("http://localhost:4000/api/auth/logout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken })
+        });
+      } catch (err) {}
+    }
+    setUserToken(null);
+    setUserRoles([]);
+    setUserUsername("");
+    localStorage.removeItem("token");
+    localStorage.removeItem("roles");
+    localStorage.removeItem("username");
+    localStorage.removeItem("refresh_token");
+    setRbacResults({});
+  };
+
+  const handlePasswordReset = async (e) => {
+    if (e) e.preventDefault();
+    setResetMessage("");
+    try {
+      const res = await fetch("http://localhost:4000/api/auth/password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username_or_email: userUsername, new_password: resetNewPassword })
+      });
+      if (res.ok) {
+        setResetMessage("Password reset successfully. Logging out...");
+        setTimeout(() => {
+          setPasswordResetOpen(false);
+          setResetNewPassword("");
+          setResetMessage("");
+          handleLogout();
+        }, 2000);
+      } else {
+        const err = await res.json();
+        setResetMessage(err.detail || "Reset failed");
+      }
+    } catch (err) {
+      setResetMessage("Could not connect to reset server.");
+    }
+  };
+
+  const testRbacEndpoint = async (endpoint) => {
+    setRbacResults(prev => ({ ...prev, [endpoint]: { loading: true } }));
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (userToken) {
+        headers["Authorization"] = `Bearer ${userToken}`;
+      }
+      const res = await fetch(`http://localhost:4000${endpoint}`, { headers });
+      const status = `${res.status} ${res.statusText}`;
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = { text: await res.text() };
+      }
+      setRbacResults(prev => ({ 
+        ...prev, 
+        [endpoint]: { loading: false, status, ok: res.ok, data } 
+      }));
+    } catch (err) {
+      setRbacResults(prev => ({ 
+        ...prev, 
+        [endpoint]: { loading: false, status: "Network Error", ok: false, data: { detail: err.message } } 
+      }));
+    }
+  };
+
   useEffect(() => {
     if (chatEndRef.current) {
       chatEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -991,9 +1109,13 @@ export default function App() {
       (async () => {
         try {
           setLoadingChat(true);
+          const headers = { "Content-Type": "application/json" };
+          if (userToken) {
+            headers["Authorization"] = `Bearer ${userToken}`;
+          }
           const chatRes = await fetch("http://localhost:4000/chat/completions", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: headers,
             body: JSON.stringify({
               session_id: sessId,
               profile: payload,
@@ -1035,9 +1157,13 @@ export default function App() {
         content: m.content
       }));
 
+      const headers = { "Content-Type": "application/json" };
+      if (userToken) {
+        headers["Authorization"] = `Bearer ${userToken}`;
+      }
       const res = await fetch("http://localhost:4000/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: headers,
         body: JSON.stringify({
           session_id: sessionId,
           profile: formData,
@@ -1087,19 +1213,73 @@ export default function App() {
             </p>
           </div>
 
-          {/* Language toggle */}
-          <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, color:C.textMuted }}>
-            <span>{lang==="en"?"Language:":"భాష:"}</span>
-            {[["en","English"],["te","తెలుగు"]].map(([l,label])=>(
-              <button key={l} onClick={()=>setLang(l)} style={{
-                padding:"6px 16px", borderRadius:20,
-                border:`1px solid ${lang===l ? C.accent : "rgba(255,255,255,0.15)"}`,
-                background: lang===l ? C.accent : "transparent",
-                color: lang===l ? C.bg : C.textMuted,
-                cursor:"pointer", fontWeight: lang===l ? 800 : 400,
-                fontSize:12, fontFamily:"inherit", transition:"all 0.2s",
-              }}>{label}</button>
-            ))}
+          {/* Language and Auth controls */}
+          <div style={{ display:"flex", alignItems:"center", gap:16, fontSize:12, color:C.textMuted }}>
+            {/* Language toggle */}
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <span>{lang==="en"?"Language:":"భాష:"}</span>
+              {[["en","English"],["te","తెలుగు"]].map(([l,label])=>(
+                <button key={l} onClick={()=>setLang(l)} style={{
+                  padding:"6px 16px", borderRadius:20,
+                  border:`1px solid ${lang===l ? C.accent : "rgba(255,255,255,0.15)"}`,
+                  background: lang===l ? C.accent : "transparent",
+                  color: lang===l ? C.bg : C.textMuted,
+                  cursor:"pointer", fontWeight: lang===l ? 800 : 400,
+                  fontSize:12, fontFamily:"inherit", transition:"all 0.2s",
+                }}>{label}</button>
+              ))}
+            </div>
+
+            <div style={{ width: 1, height: 18, background: "rgba(255,255,255,0.15)" }} />
+
+            {/* Auth Session controls */}
+            {userToken ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ color: C.green, fontWeight: 700, fontSize: 11 }}>
+                  👤 {userUsername} ({userRoles.join(", ")})
+                </span>
+                <button 
+                  onClick={() => setPasswordResetOpen(true)}
+                  style={{
+                    padding: "4px 10px", borderRadius: 6,
+                    border: `1px solid ${C.border}`, background: "transparent",
+                    color: C.text, cursor: "pointer", fontSize: 11, fontFamily: "inherit",
+                    transition: "all 0.2s"
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
+                >
+                  {lang === "en" ? "Reset" : "రీసెట్"}
+                </button>
+                <button 
+                  onClick={handleLogout}
+                  style={{
+                    padding: "4px 10px", borderRadius: 6,
+                    border: `1px solid ${C.red}`, background: "transparent",
+                    color: C.red, cursor: "pointer", fontSize: 11, fontFamily: "inherit",
+                    transition: "all 0.2s"
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "rgba(248,113,113,0.1)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+                >
+                  {lang === "en" ? "Logout" : "లాగౌట్"}
+                </button>
+              </div>
+            ) : (
+              <button 
+                onClick={() => setLoginModalOpen(true)}
+                style={{
+                  padding: "6px 16px", borderRadius: 20,
+                  border: `1px solid ${C.accent}`, background: "transparent",
+                  color: C.accent, cursor: "pointer", fontWeight: 800, fontSize: 12,
+                  fontFamily: "inherit", transition: "all 0.2s"
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = C.accent; e.currentTarget.style.color = C.bg; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.accent; }}
+              >
+                🔒 {lang === "en" ? "Log In" : "లాగిన్"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -1514,6 +1694,243 @@ export default function App() {
         )}
       </main>
       {previewOpen && <PreviewModal data={formData} onClose={() => setPreviewOpen(false)} lang={lang} />}
+
+      {/* ── RBAC MIDDLEWARE ACCESS TESTER PANEL ───────────────── */}
+      <div style={{ maxWidth: 960, margin: "0 auto 80px", padding: "0 24px" }}>
+        <section style={{
+          padding: 24,
+          background: C.bgCard,
+          border: `1px solid ${C.border}`,
+          borderRadius: 12,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.4)"
+        }}>
+          <h3 style={{ margin: "0 0 8px 0", fontSize: 16, fontWeight: 800, color: C.accent }}>
+            🔒 Starlette/FastAPI RBAC Middleware Tester
+          </h3>
+          <p style={{ margin: "0 0 16px 0", fontSize: 12, color: C.textMuted }}>
+            {lang === "en" 
+              ? "Test route authorization limits against backend middleware rules in real-time. Use the Log In button in the header to switch roles."
+              : "నిజ సమయములో బ్యాకెండ్ మిడిల్‌వేర్ నియమాలకు వ్యతిరేకంగా రూట్ అధికార పరిమితులను పరీక్షించండి. పాత్రలను మార్చడానికి హెడర్‌లోని లాగిన్ బటన్‌ను ఉపయోగించండి."}
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 16 }}>
+            {[
+              { path: "/admin/dashboard", label: "Admin Route", role: "ADMIN Only" },
+              { path: "/volunteers/dashboard", label: "Volunteer Route", role: "Admin, Hubs" },
+              { path: "/citizens/dashboard", label: "Citizen Route", role: "Admin, Hubs, Volunteer" },
+              { path: "/cases/dashboard", label: "Cases Route", role: "All Authenticated Users" },
+            ].map(endpoint => {
+              const result = rbacResults[endpoint.path];
+              return (
+                <div key={endpoint.path} style={{
+                  background: C.bgInput,
+                  border: `1px solid ${result ? (result.ok ? C.green : C.red) : C.border}`,
+                  borderRadius: 8,
+                  padding: 14,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  transition: "all 0.2s"
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.white }}>{endpoint.label}</span>
+                    <span style={{ fontSize: 9, color: C.accent, textTransform: "uppercase", fontWeight: 700 }}>{endpoint.role}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textMuted }}>{endpoint.path}</div>
+                  <button
+                    onClick={() => testRbacEndpoint(endpoint.path)}
+                    disabled={result?.loading}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: `linear-gradient(135deg, ${C.accent}, #f59e0b)`,
+                      color: C.bg,
+                      fontWeight: 700,
+                      fontSize: 11,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      marginTop: 4
+                    }}
+                  >
+                    {result?.loading ? "Testing..." : "Test Access"}
+                  </button>
+                  
+                  {result && !result.loading && (
+                    <div style={{
+                      marginTop: 8,
+                      padding: 8,
+                      background: "rgba(0,0,0,0.3)",
+                      borderRadius: 6,
+                      fontSize: 11
+                    }}>
+                      <div style={{ fontWeight: 800, color: result.ok ? C.green : C.red, marginBottom: 4 }}>
+                        Status: {result.status}
+                      </div>
+                      <pre style={{
+                        margin: 0,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-all",
+                        fontSize: 10,
+                        color: C.text,
+                        maxHeight: 80,
+                        overflowY: "auto"
+                      }}>
+                        {JSON.stringify(result.data, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+
+      {/* ── LOGIN MODAL ─────────────────────────────── */}
+      {loginModalOpen && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+          backgroundColor: "rgba(10, 12, 18, 0.85)", backdropFilter: "blur(12px)",
+          display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1001,
+          padding: 20, boxSizing: "border-box"
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400,
+            backgroundColor: C.bgCard, border: `1px solid ${C.border}`,
+            borderRadius: 16, display: "flex", flexDirection: "column",
+            overflow: "hidden", boxShadow: "0 24px 60px rgba(0,0,0,0.6)"
+          }}>
+            <div style={{ padding: "18px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: C.accent }}>🔒 Log In to Saarthi</h3>
+              <button onClick={() => setLoginModalOpen(false)} style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 18 }}>✕</button>
+            </div>
+            
+            <form onSubmit={handleLogin} style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+              {loginError && (
+                <div style={{ padding: "10px 14px", background: "rgba(248,113,113,0.1)", border: `1px solid ${C.red}`, borderRadius: 8, color: C.red, fontSize: 12 }}>
+                  ⚠️ {loginError}
+                </div>
+              )}
+
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 700, color: C.textLabel, textTransform: "uppercase", display: "block", marginBottom: 6 }}>Username or Email</label>
+                <input 
+                  type="text" 
+                  value={loginUsername} 
+                  onChange={e => setLoginUsername(e.target.value)} 
+                  required
+                  placeholder="e.g. admin"
+                  style={{
+                    background: C.bgInput, border: `1px solid ${C.border}`, borderRadius: 8,
+                    padding: "10px 14px", color: C.text, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 700, color: C.textLabel, textTransform: "uppercase", display: "block", marginBottom: 6 }}>Password</label>
+                <input 
+                  type="password" 
+                  value={loginPassword} 
+                  onChange={e => setLoginPassword(e.target.value)} 
+                  required
+                  placeholder="e.g. admin123"
+                  style={{
+                    background: C.bgInput, border: `1px solid ${C.border}`, borderRadius: 8,
+                    padding: "10px 14px", color: C.text, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              <div style={{ padding: 12, background: "rgba(255,255,255,0.02)", borderRadius: 8, fontSize: 11, color: C.textMuted }}>
+                <strong>Default Accounts Hint:</strong><br />
+                • Admin: <span style={{ color: C.accent }}>admin</span> / <span style={{ color: C.accent }}>admin123</span><br />
+                • Volunteer: <span style={{ color: C.accent }}>volunteer</span> / <span style={{ color: C.accent }}>volunteer123</span><br />
+                • Citizen: <span style={{ color: C.accent }}>citizen</span> / <span style={{ color: C.accent }}>citizen123</span>
+              </div>
+
+              <button 
+                type="submit"
+                style={{
+                  padding: "10px 20px", borderRadius: 8, border: "none",
+                  background: `linear-gradient(135deg, ${C.accent}, #f59e0b)`,
+                  color: C.bg, cursor: "pointer", fontWeight: 800, fontSize: 13, fontFamily: "inherit"
+                }}
+              >
+                Log In
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── PASSWORD RESET MODAL ────────────────────── */}
+      {passwordResetOpen && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+          backgroundColor: "rgba(10, 12, 18, 0.85)", backdropFilter: "blur(12px)",
+          display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1001,
+          padding: 20, boxSizing: "border-box"
+        }}>
+          <div style={{
+            width: "100%", maxWidth: 400,
+            backgroundColor: C.bgCard, border: `1px solid ${C.border}`,
+            borderRadius: 16, display: "flex", flexDirection: "column",
+            overflow: "hidden", boxShadow: "0 24px 60px rgba(0,0,0,0.6)"
+          }}>
+            <div style={{ padding: "18px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: C.accent }}>🔄 Reset Password</h3>
+              <button onClick={() => setPasswordResetOpen(false)} style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 18 }}>✕</button>
+            </div>
+            
+            <form onSubmit={handlePasswordReset} style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+              {resetMessage && (
+                <div style={{ 
+                  padding: "10px 14px", 
+                  background: resetMessage.includes("successfully") ? C.greenDim : "rgba(248,113,113,0.1)", 
+                  border: `1px solid ${resetMessage.includes("successfully") ? C.green : C.red}`, 
+                  borderRadius: 8, 
+                  color: resetMessage.includes("successfully") ? C.green : C.red, 
+                  fontSize: 12 
+                }}>
+                  {resetMessage}
+                </div>
+              )}
+
+              <div>
+                <span style={{ fontSize: 12, color: C.textMuted }}>Resetting password for: <strong>{userUsername}</strong></span>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 700, color: C.textLabel, textTransform: "uppercase", display: "block", marginBottom: 6 }}>New Password</label>
+                <input 
+                  type="password" 
+                  value={resetNewPassword} 
+                  onChange={e => setResetNewPassword(e.target.value)} 
+                  required
+                  placeholder="Type new password"
+                  style={{
+                    background: C.bgInput, border: `1px solid ${C.border}`, borderRadius: 8,
+                    padding: "10px 14px", color: C.text, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              <button 
+                type="submit"
+                style={{
+                  padding: "10px 20px", borderRadius: 8, border: "none",
+                  background: `linear-gradient(135deg, ${C.accent}, #f59e0b)`,
+                  color: C.bg, cursor: "pointer", fontWeight: 800, fontSize: 13, fontFamily: "inherit"
+                }}
+              >
+                Reset Password
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
